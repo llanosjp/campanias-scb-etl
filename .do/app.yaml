@@ -1,0 +1,64 @@
+name: campanias-scb-etl
+region: sfo
+
+# Worker para carga mensual de parquet
+workers:
+  - name: load-monthly
+    github:
+      repo: llanosjp/campanias-scb-etl
+      branch: main
+      deploy_on_push: true
+    
+    # Comando que ejecuta el worker
+    run_command: python etl/load_monthly.py
+    
+    # Tamaño del worker (Basic: $5/mes)
+    instance_size_slug: basic-xxs
+    instance_count: 1
+    
+    # Variables de entorno (valores se configuran en DO UI)
+    envs:
+      # GitLab
+      - key: GITLAB_TOKEN
+        scope: RUN_TIME
+        type: SECRET
+      - key: GITLAB_PROJECT_ID
+        scope: RUN_TIME
+        value: "da1534036%2Fcompartido_temporal"
+      
+      # PostgreSQL
+      - key: DB_HOST
+        scope: RUN_TIME
+        type: SECRET
+      - key: DB_PORT
+        scope: RUN_TIME
+        value: "25060"
+      - key: DB_NAME
+        scope: RUN_TIME
+        value: "defaultdb"
+      - key: DB_USER
+        scope: RUN_TIME
+        value: "doadmin"
+      - key: DB_PASSWORD
+        scope: RUN_TIME
+        type: SECRET
+      - key: DB_SSLMODE
+        scope: RUN_TIME
+        value: "require"
+      
+      # Opcional: especificar año-mes (formato YYYYMM)
+      # Si no se define, usa mes anterior
+      - key: YEAR_MONTH
+        scope: RUN_TIME
+        value: ""
+    
+    # Cron schedule: 1er día de cada mes a las 2am UTC
+    # Formato: minuto hora día mes día_semana
+    jobs:
+      - name: monthly-load
+        kind: PRE_DEPLOY
+        run_command: python etl/load_monthly.py
+        schedule: "0 2 1 * *"
+
+# Nota: Para los 3 workers diarios, agregaremos más workers aquí
+# una vez que definas qué procesos son
