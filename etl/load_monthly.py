@@ -65,7 +65,8 @@ def download_parquet_from_gitlab(year_month: str) -> pd.DataFrame:
 
 def load_to_postgresql(df: pd.DataFrame, table_name: str = "stga_scp.maestra_campanias_scb_mes"):
     """
-    Carga DataFrame a PostgreSQL, reemplazando tabla completa
+    Carga DataFrame a PostgreSQL usando TRUNCATE + INSERT
+    Mantiene la estructura existente de la tabla
     
     Args:
         df: DataFrame con los datos
@@ -90,35 +91,25 @@ def load_to_postgresql(df: pd.DataFrame, table_name: str = "stga_scp.maestra_cam
         # Separar schema y tabla
         schema, table = table_name.split(".")
         
-        # Crear schema si no existe
-        cursor.execute(sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(schema)))
+        # Verificar que la tabla existe
+        cursor.execute(sql.SQL(
+            "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = %s AND table_name = %s)"
+        ), (schema, table))
         
-        # Drop table si existe
-        print(f"Eliminando tabla existente {table_name}...")
-        cursor.execute(sql.SQL("DROP TABLE IF EXISTS {}.{}").format(
+        table_exists = cursor.fetchone()[0]
+        
+        if not table_exists:
+            raise Exception(
+                f"La tabla {table_name} NO existe. "
+                f"Debes crearla manualmente con la estructura correcta ANTES de ejecutar este ETL."
+            )
+        
+        # TRUNCATE (vacía la tabla sin borrar estructura ni índices)
+        print(f"Vaciando tabla {table_name} (TRUNCATE)...")
+        cursor.execute(sql.SQL("TRUNCATE TABLE {}.{}").format(
             sql.Identifier(schema),
             sql.Identifier(table)
         ))
-        
-        # Crear tabla desde DataFrame
-        print(f"Creando tabla {table_name}...")
-        
-        # Mapeo de tipos pandas a PostgreSQL
-        dtype_map = {
-            "object": "TEXT",
-            "int64": "BIGINT",
-            "float64": "DOUBLE PRECISION",
-            "bool": "BOOLEAN",
-            "datetime64[ns]": "TIMESTAMP",
-        }
-        
-        columns = []
-        for col, dtype in df.dtypes.items():
-            pg_type = dtype_map.get(str(dtype), "TEXT")
-            columns.append(f'"{col}" {pg_type}')
-        
-        create_table_sql = f"CREATE TABLE {table_name} ({', '.join(columns)})"
-        cursor.execute(create_table_sql)
         
         # Insertar datos en batch
         print(f"Insertando {len(df)} filas...")
@@ -138,16 +129,6 @@ def load_to_postgresql(df: pd.DataFrame, table_name: str = "stga_scp.maestra_cam
             cursor.executemany(insert_sql, batch)
             if (i + batch_size) % 10000 == 0:
                 print(f"  Insertadas {i + batch_size} filas...")
-        
-        # Crear índice en nro_documento si existe
-        if "nro_documento" in df.columns:
-            print("Creando índice en nro_documento...")
-            index_name = f"idx_{table}_nro_documento"
-            cursor.execute(sql.SQL("CREATE INDEX {} ON {}.{} (nro_documento)").format(
-                sql.Identifier(index_name),
-                sql.Identifier(schema),
-                sql.Identifier(table)
-            ))
         
         conn.commit()
         print(f"✅ Carga completada: {len(df)} filas en {table_name}")
