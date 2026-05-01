@@ -1,22 +1,22 @@
 name: campanias-scb-etl
 region: sfo
 
-# Worker para carga mensual de parquet
+# Worker con scheduler interno para jobs programados
 workers:
-  - name: load-monthly
+  - name: etl-scheduler
     github:
       repo: llanosjp/campanias-scb-etl
       branch: main
       deploy_on_push: true
     
-    # Comando que ejecuta el worker
-    run_command: python etl/load_monthly.py
+    # Comando que ejecuta el scheduler (corre 24/7)
+    run_command: python -m etl.scheduler
     
-    # Tamaño del worker (Basic: $5/mes)
+    # Tamaño del worker (Basic XXS: $5/mes)
     instance_size_slug: basic-xxs
     instance_count: 1
     
-    # Variables de entorno (valores se configuran en DO UI)
+    # Variables de entorno
     envs:
       # GitLab
       - key: GITLAB_TOKEN
@@ -51,14 +51,7 @@ workers:
       - key: YEAR_MONTH
         scope: RUN_TIME
         value: ""
-    
-    # Cron schedule: 1er día de cada mes a las 2am UTC
-    # Formato: minuto hora día mes día_semana
-    jobs:
-      - name: monthly-load
-        kind: PRE_DEPLOY
-        run_command: python etl/load_monthly.py
-        schedule: "0 2 1 * *"
 
-# Nota: Para los 3 workers diarios, agregaremos más workers aquí
-# una vez que definas qué procesos son
+# Schedule configurado en etl/scheduler.py:
+# - Carga mensual: día 1 de cada mes a las 2:00 AM UTC
+# - Jobs diarios: pendiente agregar (3 procesos)
